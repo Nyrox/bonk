@@ -73,7 +73,7 @@ const start = async () => {
         .use(express.json())
         .post("*", (req, res) => {
 
-            switch(req.body.action) {
+            switch(req.header("X-Github-Event")) {
                 case "push":
                     console.info("Received a push event with ref: " + req.body.ref)
                     return;
