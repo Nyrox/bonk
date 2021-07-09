@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+      "incremental": true,
+      "moduleResolution": "node",
+      "outDir": "build/tsc",
+      "sourceMap": true,
+      "target": "es5", // Note: to avoid using babel
+      "types" : [
+        "node",
+      ]
+    },
+    "exclude": ["./node_modules/**/*"],
+    "include": ["src/**/*"]
+  }
+  

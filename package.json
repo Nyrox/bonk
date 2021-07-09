@@ -1,0 +1,9 @@
+{
+    "private": true,
+    "name": "bonk",
+    "workspaces": [
+      "bonk-dsl",
+      "bonk-serve",
+      "bonk-cli"
+    ]
+  }
