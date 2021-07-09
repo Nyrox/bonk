@@ -1,0 +1,4 @@
+tunnels:
+  github-webhooks:
+    addr: 80
+    proto: http
