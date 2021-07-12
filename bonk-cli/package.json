@@ -1,6 +1,6 @@
 {
   "name": "bonk-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "build/tsc/main.js",
   "license": "MIT",
   "dependencies": {
@@ -13,6 +13,6 @@
   },
   "repository": "https://github.com/Nyrox/bonk",
   "publishConfig": {
-    "registry":"https://npm.pkg.github.com"
+    "registry": "https://npm.pkg.github.com"
   }
 }
