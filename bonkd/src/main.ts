@@ -8,6 +8,7 @@ import path = require("path")
 import { mkdir, readFile, writeFile } from "fs/promises"
 import child_process = require( "child_process")
 import util = require("util")
+import { ObjectFlags } from "typescript"
 
 const exec = util.promisify(child_process.exec);
 
@@ -114,19 +115,24 @@ const start = async () => {
                     await writeFile(workspace + "/bonkfile.ts", bonkfile)
 
                     const packageJson = await download_raw_text_file(event.after, "package.json")
-                    const bonkCliVer = JSON.parse(packageJson).dependencies["@nyrox/bonk-cli"]
+                    const bonkDslVer = JSON.parse(packageJson).dependencies["@nyrox/bonk-dsl"]
 
                     await writeFile(workspace + "/package.json", JSON.stringify({
                         dependencies: {
-                            ["@nyrox/bonk-cli"]: bonkCliVer,
+                            ["@nyrox/bonk-dsl"]: bonkDslVer,
                         }
                     }, undefined, 4))
                     
                     await writeFile(workspace + "/.npmrc", await download_raw_text_file(event.after, ".npmrc"))
                     
                     const yarnLogs = await exec("yarn", { cwd: workspace })
-                    const nodedLogs = await exec("ts-node " + workspace + "/bonkfile.ts", { cwd: workspace })
+                    const nodeLogs = await exec("ts-node " + workspace + "/bonkfile.ts", { cwd: workspace, env: Object.assign(process.env, {
+                        BONK_EVENT: "push:" + (event.ref as string).split("/").pop()
+                    })})
                     
+                    console.log(yarnLogs.stdout, nodeLogs.stderr)
+                    console.log(nodeLogs.stdout, nodeLogs.stderr)
+
                     return;
                 default:
                     return
