@@ -2,6 +2,7 @@
     "compilerOptions": {
       "incremental": true,
       "moduleResolution": "node",
+      "declaration": true,
       "outDir": "build/tsc",
       "sourceMap": true,
       "target": "es5", // Note: to avoid using babel

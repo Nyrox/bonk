@@ -5,11 +5,15 @@ import fetch = require("node-fetch")
 import octokit = require("@octokit/core")
 import dotenv = require("dotenv")
 import path = require("path")
-import { readFile } from "fs/promises"
+import { mkdir, readFile, writeFile } from "fs/promises"
+import child_process = require( "child_process")
+import util = require("util")
+
+const exec = util.promisify(child_process.exec);
 
 dotenv.config()
 
-const WORK_DIR = path.resolve(__dirname, "./_work")
+const WORK_DIR = path.resolve(__dirname, "../_work")
 const CONFIG_DIR = process.env["BONK_LOCAL"] == "true" ? path.resolve(__dirname, "../etc.local/") : "/etc/bonkd/"
 
 
@@ -65,10 +69,20 @@ async function ensure_github_webhook() {
 
 
 async function get_ngrok_public_url() {
-    const response = await fetch("http://localhost:4040/api/tunnels")
+    const response = await fetch.default("http://localhost:4040/api/tunnels")
     return (await response.json()).tunnels.find(t => t.name == "github-webhooks").public_url
 }
 
+async function download_raw_text_file(commitHash: string, filePath: string): Promise<string> {
+    const response = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+        owner: CONFIG.repository.owner,
+        repo: CONFIG.repository.repo,
+        path: filePath,
+        ref: commitHash,
+      })
+
+    return await (await fetch.default((response.data as any).download_url)).text()
+}
 
 const start = async () => {
     CONFIG = JSON.parse(await readFile(path.resolve(CONFIG_DIR, "./config.json"), "utf-8"))
@@ -85,13 +99,34 @@ const start = async () => {
 
     const serv = express()
         .use(express.json())
-        .post("*", (req, res) => {
-
+        .post("*", async (req, res) => {
+            const event = req.body
             switch(req.header("X-Github-Event")) {
                 case "push":
                     console.info("Received a push event with ref: " + req.body.ref)
 
+                    const workspace = path.resolve(WORK_DIR, `${event.ref}/${event.after}/`)
+                    await mkdir(workspace, { recursive: true })
+                    
+                    console.info("Created workspace: ", workspace)
 
+                    const bonkfile = await download_raw_text_file(event.after, ".bonk/bonkfile.ts")
+                    await writeFile(workspace + "/bonkfile.ts", bonkfile)
+
+                    const packageJson = await download_raw_text_file(event.after, "package.json")
+                    const bonkCliVer = JSON.parse(packageJson).dependencies["@nyrox/bonk-cli"]
+
+                    await writeFile(workspace + "/package.json", JSON.stringify({
+                        dependencies: {
+                            ["@nyrox/bonk-cli"]: bonkCliVer,
+                        }
+                    }, undefined, 4))
+                    
+                    await writeFile(workspace + "/.npmrc", await download_raw_text_file(event.after, ".npmrc"))
+                    
+                    const yarnLogs = await exec("yarn", { cwd: workspace })
+                    const nodedLogs = await exec("ts-node " + workspace + "/bonkfile.ts", { cwd: workspace })
+                    
                     return;
                 default:
                     return
