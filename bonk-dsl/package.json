@@ -1,7 +1,7 @@
 {
   "name": "@nyrox/bonk-dsl",
-  "version": "1.0.1",
-  "main": "build/tsc/main.js",
+  "version": "1.0.3",
+  "main": "build/tsc/lib.js",
   "license": "MIT",
   "dependencies": {
     "@types/node": "^16.3.0",
