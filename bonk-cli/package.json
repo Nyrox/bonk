@@ -10,5 +10,6 @@
   },
   "scripts": {
     "start": "tsc && node build/tsc/main.js"
-  }
+  },
+  "repository": "https://github.com/nyrox/bonk"
 }
