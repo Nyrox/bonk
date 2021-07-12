@@ -5,30 +5,40 @@ import fetch = require("node-fetch")
 import octokit = require("@octokit/core")
 import dotenv = require("dotenv")
 import path = require("path")
+import { readFile } from "fs/promises"
 
 dotenv.config()
 
-
 const WORK_DIR = path.resolve(__dirname, "./_work")
+const CONFIG_DIR = process.env["BONK_LOCAL"] == "true" ? path.resolve(__dirname, "../etc.local/") : "/etc/bonkd/"
 
-let WEBHOOK_URL;
 
-
-const REQUIRED_ENV = [
-    "GITHUB_API_TOKEN",
-]
-
-REQUIRED_ENV.forEach(e => {
-    if (!process.env[e]) {
-        console.warn(`WARN: "${e} not found in environment."`)
+export interface BonkConfig {
+    webhook_url: string,
+    github_api_token: string,
+    repository: {
+        owner: string,
+        repo: string,
     }
-})
+}
 
+export const DEFAULT_CONFIG: BonkConfig = {
+    webhook_url: "",
+    github_api_token: "",
+    repository: {
+        owner: "",
+        repo: "",
+    }
+}
+
+let CONFIG: BonkConfig;
+let WEBHOOK_URL: string;
+let github: octokit.Octokit;
 
 async function github_webhook_exists() {
     let hooks = await github.request("GET /repos/{owner}/{repo}/hooks", {
-        owner: "Nyrox",
-        repo: "bonk",
+        owner: CONFIG.repository.owner,
+        repo: CONFIG.repository.repo,
     })
 
     return hooks.data.find(hook => hook.config.url == WEBHOOK_URL) !== undefined
@@ -38,8 +48,8 @@ async function ensure_github_webhook() {
     if (!await github_webhook_exists()) {
         console.info("Creating GitHub WebHook")
         await github.request("POST /repos/{owner}/{repo}/hooks", {
-            owner: "Nyrox",
-            repo: "bonk",
+            owner: CONFIG.repository.owner,
+            repo:CONFIG.repository.repo,
             name: "web",
             config: {
                 url: WEBHOOK_URL,
@@ -47,12 +57,11 @@ async function ensure_github_webhook() {
             },
             events: ["*"],
         })
+        console.info("GitHub Hook created")
+    } else {
+        console.info("GitHub Hook exists")
     }
 }
-
-const github = new octokit.Octokit({
-    auth: process.env["GITHUB_API_TOKEN"],
-})
 
 
 async function get_ngrok_public_url() {
@@ -62,12 +71,17 @@ async function get_ngrok_public_url() {
 
 
 const start = async () => {
-    WEBHOOK_URL = process.env["WEBHOOK_URL_CONFIG"] == "ngrok" ?
-        await get_ngrok_public_url()  : process.env["WEBHOOK_URL_CONFIG"]
+    CONFIG = JSON.parse(await readFile(path.resolve(CONFIG_DIR, "./config.json"), "utf-8"))
+    github = new octokit.Octokit({
+        auth: CONFIG.github_api_token,
+    })
+    
+    WEBHOOK_URL = CONFIG.webhook_url == "ngrok" ?
+        await get_ngrok_public_url() : CONFIG.webhook_url
 
     console.info("WebHook URL: ", WEBHOOK_URL)
 
-    ensure_github_webhook()
+    await ensure_github_webhook()
 
     const serv = express()
         .use(express.json())
@@ -76,12 +90,15 @@ const start = async () => {
             switch(req.header("X-Github-Event")) {
                 case "push":
                     console.info("Received a push event with ref: " + req.body.ref)
+
+
                     return;
                 default:
                     return
             }
         })
 
+    console.info("Starting server")
     return serv.listen(80)
 }
 

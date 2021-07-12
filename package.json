@@ -3,7 +3,11 @@
     "name": "bonk",
     "workspaces": [
       "bonk-dsl",
-      "bonk-serve",
+      "bonkd",
       "bonk-cli"
-    ]
+    ],
+    "scripts": {
+      "bonk-cli": "yarn workspace bonk-cli start",
+      "bonkd:dev": "yarn workspace bonkd dev"
+    }
   }

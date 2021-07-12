@@ -8,8 +8,10 @@ cli
     .command('trial <event:args> <file>', 'Trial run a bonk file')
     .action((event, file, options) => {
         console.log(event, file, options)
+        const filePath = path.resolve(process.cwd(), file);
+        console.log(filePath)
 
-        const output = child_process.spawnSync("npx", ["ts-node", file], { env: Object.assign( {
+        const output = child_process.spawnSync("npx", ["ts-node", filePath], { env: Object.assign( {
                 ["BONK_EVENT"]: event,
                 ["BONK_IS_TRIAL"]: "true",
             }, process.env)
@@ -19,5 +21,4 @@ cli
     })
 
 cli.help()
-
 cli.parse()
