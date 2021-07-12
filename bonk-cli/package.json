@@ -1,7 +1,10 @@
 {
   "name": "@nyrox/bonk-cli",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "build/tsc/main.js",
+  "bin": {
+    "bonk-cli": "build/tsc/main.js"
+  },
   "license": "MIT",
   "dependencies": {
     "@types/node": "^16.3.0",
