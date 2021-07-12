@@ -11,5 +11,8 @@
   "scripts": {
     "start": "tsc && node build/tsc/main.js"
   },
-  "repository": "https://github.com/nyrox/bonk"
+  "repository": "https://github.com/Nyrox/bonk",
+  "publishConfig": {
+    "registry":"https://npm.pkg.github.com"
+  }
 }
