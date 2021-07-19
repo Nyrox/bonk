@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import cac = require('cac')
 import child_process = require("child_process")
 

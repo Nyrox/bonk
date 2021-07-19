@@ -146,6 +146,7 @@ const start = async () => {
         .use(express.json())
         .post("/api/workgroup/trigger", async (req, res) => {
             const workflow: WorkGroup = req.body
+            console.log(workflow)
             console.log("Got request to start workflow: ", workflow.name)
         })
     

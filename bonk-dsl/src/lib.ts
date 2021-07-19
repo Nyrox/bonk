@@ -17,7 +17,7 @@ export interface WorkUnit {
 
 }
 
-export interface WorkGroup  {
+export interface WorkGroup {
     items: Record<string, WorkUnit>,
     name: string,
 }
@@ -37,7 +37,7 @@ export class Artifact implements InputInterface {
     }
 }
 
-export class Resource  implements InputInterface{
+export class Resource implements InputInterface {
     resource_set: string
     filters: Record<string, string>
 
@@ -113,7 +113,11 @@ export async function stick(workgroups: [Trigger, () => Promise<WorkGroup>][]) {
                 item.inputs.sort().forEach(input => console.log(`    → ${input.display()}`))
             })
         } else {
-            await fetch("http://0.0.0.0:9725/api/workgroup/trigger", { body: JSON.stringify(workgroup), method: "POST" })
+            await fetch("http://0.0.0.0:9725/api/workgroup/trigger", {
+                body: JSON.stringify(workgroup), method: "POST", headers: {
+                    'Content-Type': 'application/json'
+                },
+            })
         }
     })
 
@@ -165,4 +169,4 @@ export function current_event(): BonkEvent {
         event_type,
         event_payload,
     }
-} 
+}
