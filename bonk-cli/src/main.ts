@@ -1,5 +1,6 @@
 import cac = require('cac')
 import child_process = require("child_process")
+
 import path = require('path')
 
 const cli = cac.default()
@@ -11,7 +12,7 @@ cli
         const filePath = path.resolve(process.cwd(), file);
         console.log(filePath)
 
-        const output = child_process.spawnSync("npx", ["ts-node", filePath], { env: Object.assign( {
+        const output = child_process.spawnSync("npx", ["ts-node", "--project=tsconfig.json", filePath], { env: Object.assign( {
                 ["BONK_EVENT"]: event,
                 ["BONK_IS_TRIAL"]: "true",
             }, process.env)

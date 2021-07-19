@@ -82,7 +82,7 @@ export class WorkUnit {
 
 
 
-export function push(ref: string, workgroup: () => WorkGroup): [Trigger, () => WorkGroup] {
+export function push(ref: string, workgroup: () => Promise<WorkGroup>): [Trigger, () => Promise<WorkGroup>] {
     return [{ EVENT_TYPE: "push", ref }, workgroup]
 }
 
@@ -95,22 +95,29 @@ export function check_trigger(trigger: Trigger, event: BonkEvent): boolean {
     }
 }
 
-export function stick(workgroups: [Trigger, () => WorkGroup][]) {
+export async function stick(workgroups: [Trigger, () => Promise<WorkGroup>][]) {
     if (is_trial()) {
         console.info("Event: ", current_event())
     }
 
-    workgroups.forEach(([trigger, wg_f]) => {
+    const wgp = workgroups.map(async ([trigger, wg_f]) => {
         if (!check_trigger(trigger, current_event())) return;
 
-        const workgroup = wg_f()
-        console.info(`Running workgroup "${workgroup.name}" with items:`)
-        Object.keys(workgroup.items).forEach(item_name => {
-            console.log(`  ↳ ${item_name}`)
-            const item = workgroup.items[item_name]
-            item.inputs.sort().forEach(input => console.log(`    → ${input.display()}`))
-        })
+        const workgroup = await wg_f()
+
+        if (is_trial()) {
+            console.info(`Running workgroup "${workgroup.name}" with items:`)
+            Object.keys(workgroup.items).forEach(item_name => {
+                console.log(`  ↳ ${item_name}`)
+                const item = workgroup.items[item_name]
+                item.inputs.sort().forEach(input => console.log(`    → ${input.display()}`))
+            })
+        } else {
+            await fetch("0.0.0.0:9725/api/workgroup/trigger", { body: JSON.stringify(workgroup), method: "POST" })
+        }
     })
+
+    await Promise.all(wgp)
 }
 
 export function resource(resource_set: string, filters: Record<string, string>): Resource {

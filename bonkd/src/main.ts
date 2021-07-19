@@ -8,7 +8,7 @@ import path = require("path")
 import { mkdir, readFile, writeFile } from "fs/promises"
 import child_process = require( "child_process")
 import util = require("util")
-import { ObjectFlags } from "typescript"
+import { WorkGroup } from "@nyrox/bonk-dsl"
 
 const exec = util.promisify(child_process.exec);
 
@@ -85,6 +85,36 @@ async function download_raw_text_file(commitHash: string, filePath: string): Pro
     return await (await fetch.default((response.data as any).download_url)).text()
 }
 
+const runBonkFile = async (event) => {
+    const workspace = path.resolve(WORK_DIR, `${event.ref}/${event.after}/`)
+    await mkdir(workspace, { recursive: true })
+    
+    console.info("Created workspace: ", workspace)
+
+    const bonkfile = await download_raw_text_file(event.after, ".bonk/bonkfile.ts")
+    await writeFile(workspace + "/bonkfile.ts", bonkfile)
+
+    const packageJson = await download_raw_text_file(event.after, "package.json")
+    const bonkDslVer = JSON.parse(packageJson).dependencies["@nyrox/bonk-dsl"]
+
+    await writeFile(workspace + "/package.json", JSON.stringify({
+        dependencies: {
+            ["@nyrox/bonk-dsl"]: bonkDslVer,
+        }
+    }, undefined, 4))
+    
+    await writeFile(workspace + "/.npmrc", await download_raw_text_file(event.after, ".npmrc"))
+    
+    const yarnLogs = await exec("yarn", { cwd: workspace })
+    const nodeLogs = await exec("ts-node " + workspace + "/bonkfile.ts", { cwd: workspace, env: Object.assign(process.env, {
+        BONK_EVENT: "push:" + (event.ref as string).split("/").pop()
+    })})
+    
+    console.log(yarnLogs.stdout, nodeLogs.stderr)
+    console.log(nodeLogs.stdout, nodeLogs.stderr)
+
+}
+
 const start = async () => {
     CONFIG = JSON.parse(await readFile(path.resolve(CONFIG_DIR, "./config.json"), "utf-8"))
     github = new octokit.Octokit({
@@ -98,49 +128,29 @@ const start = async () => {
 
     await ensure_github_webhook()
 
-    const serv = express()
+    const public_serv = express()
         .use(express.json())
         .post("*", async (req, res) => {
             const event = req.body
             switch(req.header("X-Github-Event")) {
                 case "push":
                     console.info("Received a push event with ref: " + req.body.ref)
-
-                    const workspace = path.resolve(WORK_DIR, `${event.ref}/${event.after}/`)
-                    await mkdir(workspace, { recursive: true })
-                    
-                    console.info("Created workspace: ", workspace)
-
-                    const bonkfile = await download_raw_text_file(event.after, ".bonk/bonkfile.ts")
-                    await writeFile(workspace + "/bonkfile.ts", bonkfile)
-
-                    const packageJson = await download_raw_text_file(event.after, "package.json")
-                    const bonkDslVer = JSON.parse(packageJson).dependencies["@nyrox/bonk-dsl"]
-
-                    await writeFile(workspace + "/package.json", JSON.stringify({
-                        dependencies: {
-                            ["@nyrox/bonk-dsl"]: bonkDslVer,
-                        }
-                    }, undefined, 4))
-                    
-                    await writeFile(workspace + "/.npmrc", await download_raw_text_file(event.after, ".npmrc"))
-                    
-                    const yarnLogs = await exec("yarn", { cwd: workspace })
-                    const nodeLogs = await exec("ts-node " + workspace + "/bonkfile.ts", { cwd: workspace, env: Object.assign(process.env, {
-                        BONK_EVENT: "push:" + (event.ref as string).split("/").pop()
-                    })})
-                    
-                    console.log(yarnLogs.stdout, nodeLogs.stderr)
-                    console.log(nodeLogs.stdout, nodeLogs.stderr)
-
+                    runBonkFile(event)
                     return;
                 default:
                     return
             }
         })
-
-    console.info("Starting server")
-    return serv.listen(80)
+    
+    const privateServ = express()
+        .use(express.json())
+        .post("/api/workgroup/trigger", async (req, res) => {
+            const workflow: WorkGroup = req.body
+            console.log("Got request to start workflow: ", workflow.name)
+        })
+    
+    console.info("Starting servers")
+    return [public_serv.listen(80), privateServ.listen(9725)]
 }
 
 start()
