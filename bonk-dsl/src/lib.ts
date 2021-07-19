@@ -113,7 +113,7 @@ export async function stick(workgroups: [Trigger, () => Promise<WorkGroup>][]) {
                 item.inputs.sort().forEach(input => console.log(`    → ${input.display()}`))
             })
         } else {
-            await fetch("0.0.0.0:9725/api/workgroup/trigger", { body: JSON.stringify(workgroup), method: "POST" })
+            await fetch("http://0.0.0.0:9725/api/workgroup/trigger", { body: JSON.stringify(workgroup), method: "POST" })
         }
     })
 
