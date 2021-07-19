@@ -1,10 +1,11 @@
 {
   "name": "@nyrox/bonk-dsl",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "main": "build/tsc/lib.js",
   "license": "MIT",
   "dependencies": {
     "@types/node": "^16.3.0",
+    "node-fetch": "^2.6.1",
     "typescript": "^4.3.5"
   },
   "repository": "https://github.com/Nyrox/bonk",
