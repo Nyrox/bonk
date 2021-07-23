@@ -10,12 +10,12 @@ import path = require("path")
 import { mkdir, readFile, writeFile } from "fs/promises"
 import child_process = require( "child_process")
 import util = require("util")
-import { WorkGroup, WorkUnit } from "@nyrox/bonk-dsl"
+import { Artifact, Resource, WorkGroup, WorkUnit } from "@nyrox/bonk-dsl"
 import { Db, MongoClient, ObjectId } from "mongodb"
-import { isTemplateSpan } from "typescript"
 import { downloadRawTextFile, ensureGithubWebhook } from "./github"
 import { WORK_DIR } from "./config"
 import { useDatabase } from "./utils"
+import { requestResources } from "./resources"
 
 const exec = util.promisify(child_process.exec);
 
@@ -97,7 +97,7 @@ const start = async () => {
             }
 
             const db = await useDatabase()
-            const ret = await db.collection("workgroup_runs").insertOne(workflow)
+            const ret = await db.collection("workgroup_runs").insertOne(workflow_run)
 
             await advance_workgroup(ret.insertedId)
 
@@ -115,20 +115,19 @@ const start = async () => {
 }
 
 async function item_can_make_progress(run: WorkGroupRun, item: ExtendedWorkUnit): Promise<boolean> {
-    const gates = item.inputs.map(input => {
-        switch (input.type) {
-            case "artifact":
-                const producer = run.items[input.producer]
-                return !!producer.finishedAt
-            case "resource":
-                console.warn("Resources are not implemented")
-                return true
-            default:
-                throw new Error("wtf")
-        }
-    })
+    const resources: Resource[] = item.inputs.filter(i => i.type == "resource") as Resource[]
+    const artifacts: Artifact[] = item.inputs.filter(i => i.type == "artifact") as Artifact[]
 
-    return gates.reduce((state, v) => state && v, true)
+    const is_next = artifacts
+        .map(a => !!run.items[a.producer].finishedAt)
+        .reduce((state, v) => state && v, true)
+    
+    if (!is_next) return false
+
+    const acquiredResources = await requestResources(resources)
+    if (!acquiredResources) return false
+
+    return true
 }
 
 async function advance_workgroup(run_id: ObjectId) {
@@ -157,7 +156,6 @@ async function advance_workgroup(run_id: ObjectId) {
             await db.collection("workgroup_runs").findOneAndReplace({ _id: run_id }, _run)
             await fetch.default("http://localhost:9725/api/run/" + run_id + "/advance", { method: "POST" })
         }, 10000)
-
     });
 
     await db.collection("workgroup_runs").findOneAndReplace({ _id: run_id }, run)
