@@ -8,9 +8,23 @@ import path = require("path")
 import { mkdir, readFile, writeFile } from "fs/promises"
 import child_process = require( "child_process")
 import util = require("util")
-import { WorkGroup } from "@nyrox/bonk-dsl"
+import { WorkGroup, WorkUnit } from "@nyrox/bonk-dsl"
+import { Db, MongoClient, ObjectId } from "mongodb"
+import { isTemplateSpan } from "typescript"
 
 const exec = util.promisify(child_process.exec);
+
+let __mongo_handle: MongoClient;
+let __database_handle: Db;
+const useDatabase = async () => {
+    return __database_handle || await (async () => {
+        __mongo_handle = new MongoClient("mongodb://localhost:27017")
+        await __mongo_handle.connect()
+        __database_handle = __mongo_handle.db("bonkd")
+        return __database_handle
+    })()
+}
+
 
 dotenv.config()
 
@@ -112,15 +126,28 @@ const runBonkFile = async (event) => {
     
     console.log(yarnLogs.stdout, nodeLogs.stderr)
     console.log(nodeLogs.stdout, nodeLogs.stderr)
-
 }
+
+
+interface ExtendedWorkUnit extends WorkUnit {
+    triggeredAt?: Date
+    finishedAt?: Date
+}
+
+interface WorkGroupRun extends WorkGroup {
+    triggeredAt?: Date
+    lastProgressAt?: Date
+    lastCheckedAt?: Date
+    items: Record<string, ExtendedWorkUnit>
+}
+
 
 const start = async () => {
     CONFIG = JSON.parse(await readFile(path.resolve(CONFIG_DIR, "./config.json"), "utf-8"))
     github = new octokit.Octokit({
         auth: CONFIG.github_api_token,
     })
-    
+
     WEBHOOK_URL = CONFIG.webhook_url == "ngrok" ?
         await get_ngrok_public_url() : CONFIG.webhook_url
 
@@ -140,6 +167,8 @@ const start = async () => {
                 default:
                     return
             }
+
+            res.end()
         })
     
     const privateServ = express()
@@ -148,10 +177,75 @@ const start = async () => {
             const workflow: WorkGroup = req.body
             console.log(workflow)
             console.log("Got request to start workflow: ", workflow.name)
+
+            const workflow_run: WorkGroupRun = {
+                triggeredAt: new Date(),
+                ...workflow
+            }
+
+            const db = await useDatabase()
+            const ret = await db.collection("workgroup_runs").insertOne(workflow)
+
+            await advance_workgroup(ret.insertedId)
+
+            res.end()
+        })
+        .post("/api/run/:id/advance", async (req, res) => {
+            console.log("Advancing workflow run: " + req.params.id)
+            await advance_workgroup(new ObjectId(req.params.id))
+
+            res.end()
         })
     
     console.info("Starting servers")
     return [public_serv.listen(80), privateServ.listen(9725)]
 }
+
+async function item_can_make_progress(run: WorkGroupRun, item: ExtendedWorkUnit): Promise<boolean> {
+    const gates = item.inputs.map(input => {
+        switch (input.type) {
+            case "artifact":
+                const producer = run.items[input.producer]
+                return !!producer.finishedAt
+            case "resource":
+                throw new Error("Resources not implemented")
+            default:
+                throw new Error("wtf")
+        }
+    })
+
+    return gates.reduce((state, v) => state && v, true)
+}
+
+async function advance_workgroup(run_id: ObjectId) {
+    const db = await useDatabase()
+    const run = (await db.collection("workgroup_runs").findOne({ _id: run_id })) as WorkGroupRun
+    
+    console.log(run)
+    run.lastCheckedAt = new Date()
+
+    Object.keys(run.items).forEach(async itemName => {
+        const item = run.items[itemName]
+        if (!await item_can_make_progress(run, item)) {
+            console.log(itemName + ": Not able to make progress")
+            return;
+        }
+
+        console.log(itemName + ": can progress.")
+        run.items[itemName].triggeredAt = new Date()
+
+        setTimeout(async () => {
+            console.log("Pretending to be done with: " + itemName)
+            const _run = (await db.collection("workgroup_runs").findOne({ _id: run_id })) as WorkGroupRun
+            _run.items[itemName].finishedAt = new Date()
+            await db.collection("workgroup_runs").findOneAndReplace({ _id: run_id }, _run)
+            await fetch.default("http://localhost:9725/api/runs/" + run_id + "/advance", { method: "POST" })
+        }, 10000)
+
+    });
+
+    await db.collection("workgroup_runs").findOneAndReplace({ _id: run_id }, run)
+}
+
 
 start()

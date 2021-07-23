@@ -13,10 +13,6 @@ interface PRTrigger {
 type Trigger = PushTrigger | PRTrigger
 
 
-export interface WorkUnit {
-
-}
-
 export interface WorkGroup {
     items: Record<string, WorkUnit>,
     name: string,
@@ -24,6 +20,7 @@ export interface WorkGroup {
 
 
 export class Artifact implements InputInterface {
+    type: "artifact"
     producer: string
     name: string
 
@@ -38,6 +35,7 @@ export class Artifact implements InputInterface {
 }
 
 export class Resource implements InputInterface {
+    type: "resource"
     resource_set: string
     filters: Record<string, string>
 
@@ -51,8 +49,10 @@ export class Resource implements InputInterface {
     }
 }
 
+type InputType = "artifact" | "resource"
 
 interface InputInterface {
+    type: InputType
     display: () => string
 }
 export type Input = Artifact | Resource
