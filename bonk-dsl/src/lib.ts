@@ -20,7 +20,7 @@ export interface WorkGroup {
 
 
 export class Artifact implements InputInterface {
-    type: "artifact"
+    type: "artifact" = "artifact"
     producer: string
     name: string
 
@@ -35,7 +35,7 @@ export class Artifact implements InputInterface {
 }
 
 export class Resource implements InputInterface {
-    type: "resource"
+    type: "resource" = "resource"
     resource_set: string
     filters: Record<string, string>
 
@@ -112,6 +112,8 @@ export async function stick(workgroups: [Trigger, () => Promise<WorkGroup>][]) {
                 const item = workgroup.items[item_name]
                 item.inputs.sort().forEach(input => console.log(`    → ${input.display()}`))
             })
+
+            console.log(JSON.stringify(workgroup, null, 4))
         } else {
             await fetch("http://0.0.0.0:9725/api/workgroup/trigger", {
                 body: JSON.stringify(workgroup), method: "POST", headers: {
