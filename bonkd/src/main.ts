@@ -15,7 +15,7 @@ import { Db, MongoClient, ObjectId } from "mongodb"
 import { downloadRawTextFile, ensureGithubWebhook } from "./github"
 import { WORK_DIR } from "./config"
 import { useDatabase } from "./utils"
-import { requestResources } from "./resources"
+import { LockedResource, requestResources, unlockResourcesForJob } from "./resources"
 
 const exec = util.promisify(child_process.exec);
 
@@ -52,24 +52,27 @@ const runBonkFile = async (event) => {
 }
 
 
-interface ExtendedWorkUnit extends WorkUnit {
+export interface ExtendedWorkUnit extends WorkUnit {
     triggeredAt?: Date
     finishedAt?: Date
 }
 
-interface WorkGroupRun extends WorkGroup {
+export interface WorkGroupRun extends WorkGroup {
+    _id?: ObjectId,
     triggeredAt?: Date
     lastProgressAt?: Date
     lastCheckedAt?: Date
     items: Record<string, ExtendedWorkUnit>
 }
 
+import * as cors from "cors"
 
 const start = async () => {
     await ensureGithubWebhook()
 
     const public_serv = express()
         .use(express.json())
+        .use(cors({ origin: "*" }))
         .post("*", async (req, res) => {
             const event = req.body
             switch(req.header("X-Github-Event")) {
@@ -81,6 +84,15 @@ const start = async () => {
                     return
             }
 
+            res.end()
+        })
+        .get("/api/run/list", async (req, res) => {
+            const db = await useDatabase()
+            res.write(JSON.stringify(await db.collection("workgroup_runs").find().toArray()))
+            res.end()
+        })
+        .get("*", (req, res) => {
+            res.status(404)
             res.end()
         })
     
@@ -109,12 +121,57 @@ const start = async () => {
 
             res.end()
         })
+        .post("/api/run/:run_id/job/:name/finish", async (req, res) => {
+            const { name, run_id } = req.params
+            console.log(`Marking job ${name} in run ${run_id} as finished.`)
+
+            const db = await useDatabase()
+            const run = await db.collection("workgroup_runs").findOne({ _id: new ObjectId(run_id) })
+
+            if (!run) throw new Error("Run " + run_id + " does not exist")
+
+            await finish_job_item(run as WorkGroupRun, name)
+
+            res.end()
+        })
     
     console.info("Starting servers")
     return [public_serv.listen(80), privateServ.listen(9725)]
 }
 
-async function item_can_make_progress(run: WorkGroupRun, item: ExtendedWorkUnit): Promise<boolean> {
+function run_is_finished(run: WorkGroupRun): boolean {
+    for (const item in run.items) {
+        if (!run.items[item].finishedAt) return false
+    }
+
+    return true
+}
+
+async function finish_job_item(run: WorkGroupRun, item_name: string): Promise<void> {
+    const item = run.items[item_name]
+
+    if (!item) throw new Error(`Can't find job "${item_name}" in workgroup run: ${run._id}`)
+    if (item.finishedAt) throw new Error(`Job ${item.name} in run ${run._id} already finished!`)
+
+    await unlockResourcesForJob(run._id, item_name)
+
+    const db = await useDatabase()
+    await db.collection("workgroup_runs").updateOne({
+        _id: run._id,
+    }, {
+        $set: { ["items." + item_name + ".finished_at"]: new Date() }
+    })
+
+    if (run_is_finished) {
+        await db.collection("workgroup_runs").updateOne({
+            _id: run._id,
+        }, {
+            $set: { finishedAt: new Date() }
+        })
+    }
+}
+
+async function item_request_progress(run: WorkGroupRun, item: ExtendedWorkUnit): Promise<LockedResource[] | null> {
     const resources: Resource[] = item.inputs.filter(i => i.type == "resource") as Resource[]
     const artifacts: Artifact[] = item.inputs.filter(i => i.type == "artifact") as Artifact[]
 
@@ -122,12 +179,12 @@ async function item_can_make_progress(run: WorkGroupRun, item: ExtendedWorkUnit)
         .map(a => !!run.items[a.producer].finishedAt)
         .reduce((state, v) => state && v, true)
     
-    if (!is_next) return false
+    if (!is_next) return null
 
-    const acquiredResources = await requestResources(resources)
-    if (!acquiredResources) return false
+    const acquiredResources = await requestResources(resources, { run: run._id, job: item.name })
+    if (!acquiredResources) return null
 
-    return true
+    return acquiredResources
 }
 
 async function advance_workgroup(run_id: ObjectId) {
@@ -141,21 +198,16 @@ async function advance_workgroup(run_id: ObjectId) {
         const item = run.items[itemName]
         if (item.finishedAt) return;
 
-        if (!await item_can_make_progress(run, item)) {
+        const resources = await item_request_progress(run, item)
+        console.log(resources)
+
+        if (resources == null) {
             console.log(itemName + ": Not able to make progress")
             return;
         }
 
-        console.log(itemName + ": can progress.")
+        console.log(itemName + ": can progress with resources: ", resources)
         run.items[itemName].triggeredAt = new Date()
-
-        setTimeout(async () => {
-            console.log("Pretending to be done with: " + itemName)
-            const _run = (await db.collection("workgroup_runs").findOne({ _id: run_id })) as WorkGroupRun
-            _run.items[itemName].finishedAt = new Date()
-            await db.collection("workgroup_runs").findOneAndReplace({ _id: run_id }, _run)
-            await fetch.default("http://localhost:9725/api/run/" + run_id + "/advance", { method: "POST" })
-        }, 10000)
     });
 
     await db.collection("workgroup_runs").findOneAndReplace({ _id: run_id }, run)

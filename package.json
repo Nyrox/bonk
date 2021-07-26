@@ -4,10 +4,11 @@
     "workspaces": [
       "bonk-dsl",
       "bonkd",
-      "bonk-cli"
+      "bonk-cli",
+      "frontend"
     ],
     "scripts": {
-      "bonk-cli": "yarn workspace bonk-cli start",
-      "bonkd:dev": "yarn workspace bonkd dev"
+      "bonk-cli": "yarn workspace @nyrox/bonk-cli start",
+      "bonkd:dev": "yarn workspace @nyrox/bonkd dev"
     }
   }

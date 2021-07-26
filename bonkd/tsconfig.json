@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
       "incremental": true,
+      "declaration": true,
       "moduleResolution": "node",
       "outDir": "build/tsc",
       "sourceMap": true,
