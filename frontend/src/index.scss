@@ -1,0 +1,26 @@
+@import "../node_modules/bulma/bulma.sass";
+
+
+.select, .select select {
+    width: 100%;
+  }
+  
+  // OCD
+  table .is-selected td {
+    border-bottom: 0;
+  }
+  
+table .build-item {
+    width: 100%;
+    padding: 1rem 0.5rem;
+
+    &:first-child {
+        padding-top: 0.5rem;
+    }
+    &:last-child {
+        padding-bottom: 0.5rem;
+    }
+    &:not(:last-child) {
+        border-bottom: 1px solid grey;
+    }
+}

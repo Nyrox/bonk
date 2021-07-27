@@ -12,10 +12,12 @@ import child_process = require( "child_process")
 import util = require("util")
 import { Artifact, Resource, WorkGroup, WorkUnit } from "@nyrox/bonk-dsl"
 import { Db, MongoClient, ObjectId } from "mongodb"
-import { downloadRawTextFile, ensureGithubWebhook } from "./github"
+import { downloadRawTextFile, ensureGithubWebhook, useWebhookUrl, workflowDispatch } from "./github"
 import { WORK_DIR } from "./config"
 import { useDatabase } from "./utils"
 import { LockedResource, requestResources, unlockResourcesForJob } from "./resources"
+
+export * as dsl from "@nyrox/bonk-dsl"
 
 const exec = util.promisify(child_process.exec);
 
@@ -42,9 +44,13 @@ const runBonkFile = async (event) => {
     
     await writeFile(workspace + "/.npmrc", await downloadRawTextFile(event.after, ".npmrc"))
     
+    const ref = (event.ref as string).split("/").pop()
+
     const yarnLogs = await exec("yarn", { cwd: workspace })
     const nodeLogs = await exec("ts-node " + workspace + "/bonkfile.ts", { cwd: workspace, env: Object.assign(process.env, {
-        BONK_EVENT: "push:" + (event.ref as string).split("/").pop()
+        BONK_EVENT: "push:" + ref,
+        COMMIT_REF: ref,
+        COMMIT_HASH: event.after,
     })})
     
     console.log(yarnLogs.stdout, nodeLogs.stderr)
@@ -55,6 +61,7 @@ const runBonkFile = async (event) => {
 export interface ExtendedWorkUnit extends WorkUnit {
     triggeredAt?: Date
     finishedAt?: Date
+    ghActionUrl?: string
 }
 
 export interface WorkGroupRun extends WorkGroup {
@@ -62,29 +69,50 @@ export interface WorkGroupRun extends WorkGroup {
     triggeredAt?: Date
     lastProgressAt?: Date
     lastCheckedAt?: Date
+    finishedAt?: Date
+    workflowId?: string
     items: Record<string, ExtendedWorkUnit>
 }
 
 import * as cors from "cors"
-
 const start = async () => {
     await ensureGithubWebhook()
 
     const public_serv = express()
         .use(express.json())
         .use(cors({ origin: "*" }))
+        .post("/api/run/:id/advance", async (req, res) => {
+            console.log("Advancing workflow run: " + req.params.id)
+            await advance_workgroup(new ObjectId(req.params.id))
+
+            const db = await useDatabase()
+            res.write(JSON.stringify(await db.collection("workgroup_runs").findOne({_id: new ObjectId(req.params.id) })))
+            res.end()
+        })
+        .post("/api/link-github-run", async (req, res) => {
+            const { token, gh_run_id } = req.body
+
+            console.log("Got request to link gh run id " + gh_run_id + " to " + token)
+
+            const db = await useDatabase()
+            const hook = await db.collection("gh_workflows").findOne({ _id: new ObjectId(token) })
+
+            console.log(hook)
+
+            res.end()
+        })
         .post("*", async (req, res) => {
             const event = req.body
+            const db = await useDatabase()
             switch(req.header("X-Github-Event")) {
                 case "push":
                     console.info("Received a push event with ref: " + req.body.ref)
                     runBonkFile(event)
                     return;
                 default:
+                    res.end()
                     return
             }
-
-            res.end()
         })
         .get("/api/run/list", async (req, res) => {
             const db = await useDatabase()
@@ -112,12 +140,6 @@ const start = async () => {
             const ret = await db.collection("workgroup_runs").insertOne(workflow_run)
 
             await advance_workgroup(ret.insertedId)
-
-            res.end()
-        })
-        .post("/api/run/:id/advance", async (req, res) => {
-            console.log("Advancing workflow run: " + req.params.id)
-            await advance_workgroup(new ObjectId(req.params.id))
 
             res.end()
         })
@@ -194,12 +216,11 @@ async function advance_workgroup(run_id: ObjectId) {
     console.log(run)
     run.lastCheckedAt = new Date()
 
-    Object.keys(run.items).forEach(async itemName => {
+    let promises = Object.keys(run.items).map(async itemName => {
         const item = run.items[itemName]
         if (item.finishedAt) return;
 
         const resources = await item_request_progress(run, item)
-        console.log(resources)
 
         if (resources == null) {
             console.log(itemName + ": Not able to make progress")
@@ -207,9 +228,22 @@ async function advance_workgroup(run_id: ObjectId) {
         }
 
         console.log(itemName + ": can progress with resources: ", resources)
+
+        const bonk_token = await db.collection("gh_workflows").insertOne({
+            run_id: run._id,
+            unit: item.name,
+        })
+
+        const public_url = await useWebhookUrl()
+        
+        await workflowDispatch(item.workflow_file, run.commit_ref, {
+           __BONK_PUBLIC_URL: public_url,
+           __BONK_TOKEN: bonk_token.insertedId.toHexString(),
+        })
         run.items[itemName].triggeredAt = new Date()
     });
 
+    await Promise.all(promises)
     await db.collection("workgroup_runs").findOneAndReplace({ _id: run_id }, run)
 }
 

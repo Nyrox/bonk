@@ -16,6 +16,8 @@ type Trigger = PushTrigger | PRTrigger
 export interface WorkGroup {
     items: Record<string, WorkUnit>,
     name: string,
+    commit_ref: string,
+    commit_hash: string,
 }
 
 
@@ -49,7 +51,7 @@ export class Resource implements InputInterface {
     }
 }
 
-type InputType = "artifact" | "resource"
+export type InputType = "artifact" | "resource"
 
 interface InputInterface {
     type: InputType
@@ -147,7 +149,7 @@ export function workgroup(name: string, units: WorkUnit[]): WorkGroup {
         })
     })
 
-    return { name, items }
+    return { name, items, commit_ref: process.env["COMMIT_REF"], commit_hash: process.env["COMMIT_HASH"] }
 }
 
 export function unit(name: string, options: UnitOptions): WorkUnit {

@@ -22,7 +22,7 @@ async function getNgrokPublicUrl() {
 
 
 let __webhook_url: string;
-async function useWebhookUrl() {
+export async function useWebhookUrl() {
     return __webhook_url || await (async () => {
         const config = await useConfig()
         __webhook_url = config.webhook_url == "ngrok" ? await getNgrokPublicUrl() : config.webhook_url
@@ -75,4 +75,18 @@ export async function downloadRawTextFile(commitHash: string, filePath: string):
       })
 
     return await (await fetch((response.data as any).download_url)).text()
+}
+
+
+export async function workflowDispatch(workflow: string, ref: string, inputs: Record<string, string> = {}) {
+    const config = await useConfig()
+    const github = await useGithub()
+
+    await github.request("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", {
+        owner: config.repository.owner,
+        repo: config.repository.repo,
+        workflow_id: workflow,
+        ref,
+        inputs,
+    })
 }

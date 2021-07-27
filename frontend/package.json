@@ -7,12 +7,15 @@
     "serve": "vite preview"
   },
   "dependencies": {
+    "@nyrox/bonkd": "1.0.0",
     "@reduxjs/toolkit": "^1.6.1",
     "@types/react-redux": "^7.1.18",
+    "bulma": "^0.9.3",
+    "classnames": "^2.3.1",
     "react": "^17.0.0",
     "react-dom": "^17.0.0",
     "react-redux": "^7.2.4",
-    "@nyrox/bonkd": "1.0.0"
+    "sass": "^1.36.0"
   },
   "devDependencies": {
     "@types/react": "^17.0.0",

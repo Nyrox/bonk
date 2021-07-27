@@ -15,11 +15,19 @@ const workgroupSlice = createSlice({
     reducers: {
         runsLoaded(state, action: { type: string, payload: WorkGroupRun[] }) {
             state.runs = action.payload
+        },
+        updateRun(state, action: { type: string, payload: WorkGroupRun }) {
+            const index = state.runs.findIndex(r => r._id == action.payload._id)
+            if (index !== -1) {
+                state.runs[index] = action.payload
+            } else {
+                state.runs.push(action.payload)
+            }
         }
     }
 })
 
-export const { runsLoaded } = workgroupSlice.actions
+export const { runsLoaded, updateRun } = workgroupSlice.actions
 
 export const store = configureStore({
     reducer: {
