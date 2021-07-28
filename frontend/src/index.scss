@@ -10,17 +10,16 @@
     border-bottom: 0;
   }
   
-table .build-item {
+table .build-items > li {
     width: 100%;
     padding: 1rem 0.5rem;
 
-    &:first-child {
-        padding-top: 0.5rem;
-    }
     &:last-child {
         padding-bottom: 0.5rem;
     }
     &:not(:last-child) {
         border-bottom: 1px solid grey;
     }
+
+
 }

@@ -12,10 +12,10 @@ import child_process = require( "child_process")
 import util = require("util")
 import { Artifact, Resource, WorkGroup, WorkUnit } from "@nyrox/bonk-dsl"
 import { Db, MongoClient, ObjectId } from "mongodb"
-import { downloadRawTextFile, ensureGithubWebhook, useWebhookUrl, workflowDispatch } from "./github"
-import { WORK_DIR } from "./config"
+import { downloadRawTextFile, ensureGithubWebhook, useGithub, useWebhookUrl, workflowDispatch } from "./github"
+import { useConfig, WORK_DIR } from "./config"
 import { useDatabase } from "./utils"
-import { LockedResource, requestResources, unlockResourcesForJob } from "./resources"
+import { LockedResource, requestResources, unlockAll, unlockResourcesForJob } from "./resources"
 
 export * as dsl from "@nyrox/bonk-dsl"
 
@@ -83,6 +83,7 @@ const start = async () => {
         .use(cors({ origin: "*" }))
         .post("/api/run/:id/advance", async (req, res) => {
             console.log("Advancing workflow run: " + req.params.id)
+            await poll_all_pending_workflows()
             await advance_workgroup(new ObjectId(req.params.id))
 
             const db = await useDatabase()
@@ -95,10 +96,19 @@ const start = async () => {
             console.log("Got request to link gh run id " + gh_run_id + " to " + token)
 
             const db = await useDatabase()
-            const hook = await db.collection("gh_workflows").findOne({ _id: new ObjectId(token) })
+            const hook = await db.collection("gh_workflows").findOneAndUpdate({ 
+                _id: new ObjectId(token)
+            }, {
+                $set: { gh_run_id }
+            })
 
             console.log(hook)
 
+            res.end()
+        })
+        .post("/api/resources/unlock-all", async (req, res) => {
+            console.log("Unlocking all resources")
+            await unlockAll()
             res.end()
         })
         .post("*", async (req, res) => {
@@ -109,10 +119,17 @@ const start = async () => {
                     console.info("Received a push event with ref: " + req.body.ref)
                     runBonkFile(event)
                     return;
+                case "check_suite":
+                    // Little hacky, but this gives a pretty good indication that a workflow finished
+                    if (event.check_suite.status == "completed" && event.check_suite.app.slug == "github-actions") {
+                        await poll_all_pending_workflows()
+                    }
+                    break;
                 default:
-                    res.end()
-                    return
+                    break;
             }
+
+            res.end()
         })
         .get("/api/run/list", async (req, res) => {
             const db = await useDatabase()
@@ -161,6 +178,40 @@ const start = async () => {
     return [public_serv.listen(80), privateServ.listen(9725)]
 }
 
+async function poll_all_pending_workflows() {
+    console.log("Polling all pending webhooks")
+
+    const db = await useDatabase()
+    const workflows = await db.collection("gh_workflows").find(
+        { gh_run_id: { $exists: true } }
+    )
+    
+    const config = await useConfig()
+    await Promise.all((await workflows.toArray()).map(async (doc) => {
+        console.log(doc)
+
+        const github = await useGithub()
+        const gh_run = await github.request("GET /repos/{owner}/{repo}/actions/runs/{run_id}", {
+            owner: config.repository.owner,
+            repo: config.repository.repo,
+            run_id: doc.gh_run_id,
+        })
+
+        if (gh_run.data.status == "completed") {
+            console.log(`${doc.run_id}.${doc.unit} has finished with conclusion: ${gh_run.data.conclusion}`)
+            await db.collection("gh_workflows").deleteOne({ _id: doc._id })
+
+            await db.collection("workgroup_runs").findOneAndUpdate({ _id: doc.run_id }, {
+                $set: { 
+                    [`items.${doc.unit}.finishedAt`]: new Date(),
+                    [`items.${doc.unit}.gh_workflow_id`]: doc.gh_run_id,
+                    [`items.${doc.unit}.conclusion`]: gh_run.data.conclusion,
+                }
+            })
+        }
+    }))
+}
+
 function run_is_finished(run: WorkGroupRun): boolean {
     for (const item in run.items) {
         if (!run.items[item].finishedAt) return false
@@ -194,6 +245,8 @@ async function finish_job_item(run: WorkGroupRun, item_name: string): Promise<vo
 }
 
 async function item_request_progress(run: WorkGroupRun, item: ExtendedWorkUnit): Promise<LockedResource[] | null> {
+    if (item.triggeredAt) return null;
+
     const resources: Resource[] = item.inputs.filter(i => i.type == "resource") as Resource[]
     const artifacts: Artifact[] = item.inputs.filter(i => i.type == "artifact") as Artifact[]
 
@@ -212,13 +265,12 @@ async function item_request_progress(run: WorkGroupRun, item: ExtendedWorkUnit):
 async function advance_workgroup(run_id: ObjectId) {
     const db = await useDatabase()
     const run = (await db.collection("workgroup_runs").findOne({ _id: run_id })) as WorkGroupRun
-    
-    console.log(run)
+
     run.lastCheckedAt = new Date()
 
     let promises = Object.keys(run.items).map(async itemName => {
         const item = run.items[itemName]
-        if (item.finishedAt) return;
+        if (item.triggeredAt) return;
 
         const resources = await item_request_progress(run, item)
 

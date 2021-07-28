@@ -19,11 +19,22 @@ export interface LockedResource {
     locked_in_job?: string,
 }
 
+export async function unlockAll() {
+    const release = await serviceLock.acquire()
+    const db = await useDatabase()
+    try {
+        await db.collection("resources").updateMany({ lock_state: { $ne: LockState.Free }}, {
+            $set: { lock_state: LockState.Free }
+        })
+    } finally {
+        release()
+    }
+}
+
 export async function requestResources(requested: Resource[], requester: { run: ObjectId, job: string }): Promise<LockedResource[] | null> {
     const release = await serviceLock.acquire()
     let selected: LockedResource[] = []
     const db = await useDatabase()
-    console.log(requested)
 
     try {
         for(let i = 0; i < requested.length; i++) {
@@ -37,7 +48,6 @@ export async function requestResources(requested: Resource[], requester: { run: 
             }, { $set: { lock_state: LockState.Reserved }})
 
             if (!available.value) return null
-            console.log(available.value)
             selected.push(available.value as LockedResource)
         }
 

@@ -82,6 +82,7 @@ export async function workflowDispatch(workflow: string, ref: string, inputs: Re
     const config = await useConfig()
     const github = await useGithub()
 
+    console.log(workflow, ref, config)
     await github.request("POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches", {
         owner: config.repository.owner,
         repo: config.repository.repo,

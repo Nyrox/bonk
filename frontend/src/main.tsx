@@ -35,18 +35,44 @@ const ItemInput = ({ input }: {input: dsl.Input}) => {
 	}
 }
 
+function elapsed_time_since(input: Date | string): string {
+	let date = typeof input == "string" ? new Date(input) : input
+	let diff = ((new Date()).getTime() - date.getTime()) / 1000
+
+	const formatNum = (num: number) => Math.floor(num).toLocaleString(undefined, { minimumIntegerDigits: 2})
+
+	return  formatNum(diff / 60 / 60) + ":" + 
+			formatNum(diff / 60 % 60) + ":" + 
+			formatNum(diff % 60)
+}
+
 const BuildItem = ({ item }: { item: ExtendedWorkUnit }) => {
 	const itemState: ItemState = item.triggeredAt ?
 		(item.finishedAt ? ItemState.Finished : ItemState.InProgress) : ItemState.Scheduled
+	
+	const [_hack, setHack] = useState(0)
+	useEffect(() => {
+		const h = setTimeout(() => setHack(_hack + 1), 1000)
+		return () => clearTimeout(h)
+	})
 
-	return <li className="build-item">
+	const stateText: Record<ItemState, () => ReactElement> = {
+		[ItemState.InProgress]: () => <>Running for&nbsp;<span className="is-family-monospace">{elapsed_time_since(item.triggeredAt!)}</span></>,
+		[ItemState.Scheduled]: () => <>Scheduled</>,
+		[ItemState.Finished]: () => <span className="has-text-success">Finished</span>,
+		[ItemState.Failed]: () => <span className="has-text-danger">Failed</span>,
+		[ItemState.Aborted]: () => <>Aborted</>,
+	}
+
+	return <div className="build-item">
+			
 		<div className="level mb-0">
 			<div className="level-left">
 				<h4 className="mr-6"><span className="has-text-weight-bold">{item.name}</span><span style={{ width: "8px", display: "inline-block" }} />[{item.workflow_file}]</h4>
 			</div>
 			<div className="level-right">
 				{
-					Object.values(ItemState)[itemState]
+					stateText[itemState]()
 				}
 			</div>
 		</div>
@@ -57,7 +83,7 @@ const BuildItem = ({ item }: { item: ExtendedWorkUnit }) => {
 				{ item.inputs.map((i, n) => <ItemInput key={n} input={i} />)}
 			</div>
 		</div>
-	</li>
+	</div>
 }
 
 export interface WorkgroupRunDetailsProps {
@@ -86,7 +112,7 @@ const WorkgroupRunDetails = ({ id }: WorkgroupRunDetailsProps) => {
 		</div>
 		<h3 className="has-text-weight-bold px-2 is-size-5 is-underlined">Jobs</h3>
 		<ul className="build-items">
-			{Object.keys(run.items).map(k => <BuildItem key={k} item={run.items[k]} />)}
+			{Object.keys(run.items).map(k => <li key={k}><BuildItem item={run.items[k]} /></li>)}
 		</ul>
 	</div>
 }
@@ -128,10 +154,17 @@ const BruhComponent = () => {
 	</div>
 }
 
+function dirt() {
+	fetch("http://localhost/api/resources/unlock-all", { method: "POST" })
+}
 
 ReactDOM.render(
 	<React.StrictMode>
 		<Provider store={Store.store}>
+			<section className="section">
+			<button className="button is-danger" onClick={dirt}>Unlock all resources</button>
+
+			</section>
 			<section className="section">
 				<BruhComponent />
 			</section>
