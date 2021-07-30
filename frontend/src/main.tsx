@@ -2,21 +2,13 @@ import classNames from 'classnames'
 import React, { ReactElement, useEffect, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { Provider } from 'react-redux'
-import { ExtendedWorkUnit, dsl } from "@nyrox/bonkd"
+import { Input, IWorkUnit, UnitStatus } from "@nyrox/bonk-common"
 import { Table } from './components/bulma'
 import { Expandable } from './components/expandable'
 
 import './index.scss'
 import * as Store from "./store"
 import { useAppDispatch, useAppSelector } from './store'
-
-enum ItemState {
-	Finished,
-	Failed,
-	Aborted,
-	InProgress,
-	Scheduled,
-}
 
 function formatDate(input: Date | string) {
 	let date = typeof input == "string" ? new Date(input) : input
@@ -26,12 +18,14 @@ function formatDate(input: Date | string) {
 		hour: "2-digit", minute: "2-digit" })
 }
 
-const ItemInput = ({ input }: {input: dsl.Input}) => {
+const ItemInput = ({ input }: {input: Input}) => {
 	switch (input.type) {
 		case "artifact":
 			return <li>Artifact <span className="is-family-monospace has-background-light">{input.name}</span> from job: <span className="is-family-monospace has-background-light">{input.producer}</span></li>
+			break;
 		case "resource":
 			return <li>Resource from set: <span className="is-family-monospace has-background-light">{input.resource_set}</span></li>
+			break;
 	}
 }
 
@@ -46,24 +40,22 @@ function elapsed_time_since(input: Date | string): string {
 			formatNum(diff % 60)
 }
 
-const BuildItem = ({ item }: { item: ExtendedWorkUnit }) => {
-	const itemState: ItemState = item.triggeredAt ?
-		(item.finishedAt ? ItemState.Finished : ItemState.InProgress) : ItemState.Scheduled
-	
+const BuildItem = ({ item }: { item: IWorkUnit }) => {
 	const [_hack, setHack] = useState(0)
 	useEffect(() => {
 		const h = setTimeout(() => setHack(_hack + 1), 1000)
 		return () => clearTimeout(h)
 	})
-
-	const stateText: Record<ItemState, () => ReactElement> = {
-		[ItemState.InProgress]: () => <>Running for&nbsp;<span className="is-family-monospace">{elapsed_time_since(item.triggeredAt!)}</span></>,
-		[ItemState.Scheduled]: () => <>Scheduled</>,
-		[ItemState.Finished]: () => <span className="has-text-success">Finished</span>,
-		[ItemState.Failed]: () => <span className="has-text-danger">Failed</span>,
-		[ItemState.Aborted]: () => <>Aborted</>,
+	
+	const statusText: Record<UnitStatus, () => ReactElement> = {
+		[UnitStatus.Queued]: () => <>Queued</>,
+		[UnitStatus.Running]: () => <>Running for&nbsp;<span className="is-family-monospace">{elapsed_time_since(item.triggeredAt!)}</span></>,
+		[UnitStatus.Scheduled]: () => <>Scheduled</>,
+		[UnitStatus.Finished]: () => <span className="has-text-success">Finished</span>,
+		[UnitStatus.Failed]: () => <span className="has-text-danger">Failed</span>,
+		[UnitStatus.Cancelled]: () => <>Cancelled</>,
 	}
-
+	
 	return <div className="build-item">
 			
 		<div className="level mb-0">
@@ -72,16 +64,16 @@ const BuildItem = ({ item }: { item: ExtendedWorkUnit }) => {
 			</div>
 			<div className="level-right">
 				{
-					stateText[itemState]()
+					statusText[item.status]()
 				}
 			</div>
 		</div>
 
 		<div>
 			<h4 className="has-text-weight-bold">Inputs: {item.inputs.length == 0 ? "None" : ""}</h4>
-			<div>
+			<ul>
 				{ item.inputs.map((i, n) => <ItemInput key={n} input={i} />)}
-			</div>
+			</ul>
 		</div>
 	</div>
 }
@@ -99,16 +91,29 @@ const WorkgroupRunDetails = ({ id }: WorkgroupRunDetailsProps) => {
 	const [isWaiting, setIsWaiting] = useState(false)
 
 	const advanceManually = async () => {
+		if (isWaiting) return;
+
 		setIsWaiting(true)
 		const res = await fetch("http://localhost/api/run/" + id + "/advance", { method: "POST" })
 		dispatch(Store.updateRun(await res.json()))
 		setIsWaiting(false)
 	}
 
+	const cancelRun = async () => {
+		if (isWaiting) return;
+
+		setIsWaiting(true)
+		const res = await fetch("http://localhost/api/run/" + id + "/cancel", { method: "POST" })
+		dispatch(Store.updateRun(await res.json()))
+		setIsWaiting(false)
+	}
+
 	return <div className="card p-2">
 		<div className="p-2">
-			<h4>Last Updated: { formatDate(run.lastCheckedAt || "") }</h4>
+			<h4 className="">Last Updated: { formatDate(run.lastCheckedAt || "") }</h4>
+			<h4 className="mb-2">Last Progressed: { formatDate(run.lastProgressAt || "") }</h4>
 			<button onClick={advanceManually} className={classNames("button", { "is-loading": isWaiting })}>Update manually</button>
+			<button onClick={cancelRun} className={classNames("button is-danger ml-4", { "is-loading": isWaiting })}>Cancel</button>
 		</div>
 		<h3 className="has-text-weight-bold px-2 is-size-5 is-underlined">Jobs</h3>
 		<ul className="build-items">
@@ -130,18 +135,24 @@ const BruhComponent = () => {
 		fetchRuns()
 	}, [])
 
-	const columns = ["Workgroup", "Triggered At", "Ref", "Commit", "Status"]
+	const columns = [
+		"Workgroup",
+		"Ref",
+		"Commit",
+		"Triggered At",
+		"Status"
+	]
 
 	return <div>
 		<h2 className="subtitle">Latest Workgroup Runs</h2>
 		<Table columns={columns} hover className="box is-inline-block">
 			{runs.map(r => <Expandable key={r._id as any} render={(isExpanded, onClick) => (<>
 				<tr onClick={onClick} className={classNames("is-clickable", { "is-selected": isExpanded })}>
-					<td>{r.name}</td>
-					<td>{ formatDate(r.triggeredAt!) }</td>
+					<td>{r.workgroup_name}</td>
 					<td>{r.commit_ref}</td>
 					<td>{r.commit_hash.substr(0, 7)}</td>
-					<td>{r.finishedAt || "In Progress"}</td>
+					<td>{ formatDate(r.triggeredAt!) }</td>
+					<td>{r.status}</td>
 				</tr>
 				{isExpanded ?
 					<tr className="extended-panel">

@@ -1,6 +1,6 @@
 
 import { Mutex } from "async-mutex"
-import { Resource } from "@nyrox/bonk-dsl"
+import { IResource } from "@nyrox/bonk-common/build/tsc/types"
 import { Db, ObjectId } from "mongodb"
 import { useDatabase } from "./utils"
 
@@ -31,7 +31,7 @@ export async function unlockAll() {
     }
 }
 
-export async function requestResources(requested: Resource[], requester: { run: ObjectId, job: string }): Promise<LockedResource[] | null> {
+export async function requestResources(requested: IResource[], requester: { run: ObjectId, job: string }): Promise<LockedResource[] | null> {
     const release = await serviceLock.acquire()
     let selected: LockedResource[] = []
     const db = await useDatabase()

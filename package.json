@@ -1,14 +1,19 @@
 {
-    "private": true,
-    "name": "bonk",
-    "workspaces": [
-      "bonk-dsl",
-      "bonkd",
-      "bonk-cli",
-      "frontend"
-    ],
-    "scripts": {
-      "bonk-cli": "yarn workspace @nyrox/bonk-cli start",
-      "bonkd:dev": "yarn workspace @nyrox/bonkd dev"
-    }
+  "private": true,
+  "name": "bonk",
+  "workspaces": [
+    "bonk-common",
+    "bonk-dsl",
+    "bonkd",
+    "bonk-cli",
+    "frontend"
+  ],
+  "scripts": {
+    "bonk-cli": "yarn workspace @nyrox/bonk-cli start",
+    "bonkd:dev": "yarn workspace @nyrox/bonkd dev",
+    "frontend:dev": "yarn workspace @nyrox/bonk-frontend dev"
+  },
+  "dependencies": {
+    "@nyrox/bonkd": "1.1.1"
   }
+}

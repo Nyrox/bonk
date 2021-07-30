@@ -1,5 +1,5 @@
 {
-  "name": "bonk-frontend",
+  "name": "@nyrox/bonk-frontend",
   "version": "0.0.0",
   "scripts": {
     "dev": "vite",
@@ -7,7 +7,7 @@
     "serve": "vite preview"
   },
   "dependencies": {
-    "@nyrox/bonkd": "1.0.0",
+    "@nyrox/bonk-common": "1.x.x",
     "@reduxjs/toolkit": "^1.6.1",
     "@types/react-redux": "^7.1.18",
     "bulma": "^0.9.3",

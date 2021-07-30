@@ -1,10 +1,10 @@
 {
   "name": "@nyrox/bonk-dsl",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "main": "build/tsc/lib.js",
   "license": "MIT",
   "dependencies": {
-    "@nyrox/bonkd": "1.0.0",
+    "@nyrox/bonkd": "1.1.1",
     "@types/node": "^16.3.0",
     "node-fetch": "^2.6.1",
     "typescript": "^4.3.5"
@@ -12,5 +12,8 @@
   "repository": "https://github.com/Nyrox/bonk",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "release": "yarn tsc && yarn publish --no-git-tag-version"
   }
 }

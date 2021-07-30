@@ -5,6 +5,11 @@ import reactRefresh from '@vitejs/plugin-react-refresh'
 export default defineConfig({
   plugins: [reactRefresh()],
   server: {
-    cors: false,
+    cors: true,
+  },
+  optimizeDeps: {
+    include: [
+      "@nyrox/bonk-common"
+    ]
   }
 })

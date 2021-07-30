@@ -1,29 +1,27 @@
-import dotenv = require("dotenv")
+
+import dotenv from "dotenv"
 dotenv.config()
 
-
-
-import express = require("express")
-import fetch = require("node-fetch")
-import octokit = require("@octokit/core")
-import path = require("path")
+import express from "express"
+import path from "path"
 import { mkdir, readFile, writeFile } from "fs/promises"
-import child_process = require( "child_process")
-import util = require("util")
-import { Artifact, Resource, WorkGroup, WorkUnit } from "@nyrox/bonk-dsl"
+import child_process from "child_process"
+import util from "util"
 import { Db, MongoClient, ObjectId } from "mongodb"
 import { downloadRawTextFile, ensureGithubWebhook, useGithub, useWebhookUrl, workflowDispatch } from "./github"
 import { useConfig, WORK_DIR } from "./config"
 import { useDatabase } from "./utils"
 import { LockedResource, requestResources, unlockAll, unlockResourcesForJob } from "./resources"
-
-export * as dsl from "@nyrox/bonk-dsl"
+import cors from "cors"
+import { IArtifact, IResource, IWorkGroupRun, IWorkUnit } from "@nyrox/bonk-common/build/tsc/types"
 
 const exec = util.promisify(child_process.exec);
 
+const BONK_TSCONFIG = {
 
+}
 
-const runBonkFile = async (event) => {
+const runBonkFile = async (event: any) => {
     const workspace = path.resolve(WORK_DIR, `${event.ref}/${event.after}/`)
     await mkdir(workspace, { recursive: true })
     
@@ -31,7 +29,7 @@ const runBonkFile = async (event) => {
 
     const bonkfile = await downloadRawTextFile(event.after, ".bonk/bonkfile.ts")
     await writeFile(workspace + "/bonkfile.ts", bonkfile)
-
+    await writeFile(workspace + "/tsconfig.json", JSON.stringify(BONK_TSCONFIG, null, 4))
     const packageJson = await downloadRawTextFile(event.after, "package.json")
     const bonkDslVer = JSON.parse(packageJson).dependencies["@nyrox/bonk-dsl"]
 
@@ -47,7 +45,7 @@ const runBonkFile = async (event) => {
     const ref = (event.ref as string).split("/").pop()
 
     const yarnLogs = await exec("yarn", { cwd: workspace })
-    const nodeLogs = await exec("ts-node " + workspace + "/bonkfile.ts", { cwd: workspace, env: Object.assign(process.env, {
+    const nodeLogs = await exec("ts-node --project ./tsconfig.json ./bonkfile.ts", { cwd: workspace, env: Object.assign(process.env, {
         BONK_EVENT: "push:" + ref,
         COMMIT_REF: ref,
         COMMIT_HASH: event.after,
@@ -58,23 +56,7 @@ const runBonkFile = async (event) => {
 }
 
 
-export interface ExtendedWorkUnit extends WorkUnit {
-    triggeredAt?: Date
-    finishedAt?: Date
-    ghActionUrl?: string
-}
 
-export interface WorkGroupRun extends WorkGroup {
-    _id?: ObjectId,
-    triggeredAt?: Date
-    lastProgressAt?: Date
-    lastCheckedAt?: Date
-    finishedAt?: Date
-    workflowId?: string
-    items: Record<string, ExtendedWorkUnit>
-}
-
-import * as cors from "cors"
 const start = async () => {
     await ensureGithubWebhook()
 
@@ -86,6 +68,12 @@ const start = async () => {
             await poll_all_pending_workflows()
             await advance_workgroup(new ObjectId(req.params.id))
 
+            const db = await useDatabase()
+            res.write(JSON.stringify(await db.collection("workgroup_runs").findOne({_id: new ObjectId(req.params.id) })))
+            res.end()
+        })
+        .post("/api/run/:id/cancel", async (req, res) => {
+            await cancel_workgroup(new ObjectId(req.params.id))
             const db = await useDatabase()
             res.write(JSON.stringify(await db.collection("workgroup_runs").findOne({_id: new ObjectId(req.params.id) })))
             res.end()
@@ -133,7 +121,9 @@ const start = async () => {
         })
         .get("/api/run/list", async (req, res) => {
             const db = await useDatabase()
-            res.write(JSON.stringify(await db.collection("workgroup_runs").find().toArray()))
+            res.write(JSON.stringify(await db.collection("workgroup_runs").aggregate(
+                [ { $sort: { triggeredAt: -1 }}]
+            ).toArray()))
             res.end()
         })
         .get("*", (req, res) => {
@@ -144,11 +134,11 @@ const start = async () => {
     const privateServ = express()
         .use(express.json())
         .post("/api/workgroup/trigger", async (req, res) => {
-            const workflow: WorkGroup = req.body
+            const workflow: IWorkGroupRun = req.body
             console.log(workflow)
-            console.log("Got request to start workflow: ", workflow.name)
+            console.log("Got request to start workflow: ", workflow.workgroup_name)
 
-            const workflow_run: WorkGroupRun = {
+            const workflow_run: IWorkGroupRun = {
                 triggeredAt: new Date(),
                 ...workflow
             }
@@ -169,7 +159,7 @@ const start = async () => {
 
             if (!run) throw new Error("Run " + run_id + " does not exist")
 
-            await finish_job_item(run as WorkGroupRun, name)
+            await finish_job_item(run as IWorkGroupRun, name)
 
             res.end()
         })
@@ -212,7 +202,9 @@ async function poll_all_pending_workflows() {
     }))
 }
 
-function run_is_finished(run: WorkGroupRun): boolean {
+async function run_is_finished(run_id: ObjectId): Promise<boolean> {
+    const db = await useDatabase()
+    const run = await db.collection("workgroup_runs").findOne({ _id: run_id }) as IWorkGroupRun
     for (const item in run.items) {
         if (!run.items[item].finishedAt) return false
     }
@@ -220,13 +212,13 @@ function run_is_finished(run: WorkGroupRun): boolean {
     return true
 }
 
-async function finish_job_item(run: WorkGroupRun, item_name: string): Promise<void> {
+async function finish_job_item(run: IWorkGroupRun, item_name: string): Promise<void> {
     const item = run.items[item_name]
 
     if (!item) throw new Error(`Can't find job "${item_name}" in workgroup run: ${run._id}`)
     if (item.finishedAt) throw new Error(`Job ${item.name} in run ${run._id} already finished!`)
 
-    await unlockResourcesForJob(run._id, item_name)
+    await unlockResourcesForJob(run._id!, item_name)
 
     const db = await useDatabase()
     await db.collection("workgroup_runs").updateOne({
@@ -235,7 +227,7 @@ async function finish_job_item(run: WorkGroupRun, item_name: string): Promise<vo
         $set: { ["items." + item_name + ".finished_at"]: new Date() }
     })
 
-    if (run_is_finished) {
+    if (await run_is_finished(run._id!)) {
         await db.collection("workgroup_runs").updateOne({
             _id: run._id,
         }, {
@@ -244,11 +236,11 @@ async function finish_job_item(run: WorkGroupRun, item_name: string): Promise<vo
     }
 }
 
-async function item_request_progress(run: WorkGroupRun, item: ExtendedWorkUnit): Promise<LockedResource[] | null> {
+async function item_request_progress(run: IWorkGroupRun, item: IWorkUnit): Promise<LockedResource[] | null> {
     if (item.triggeredAt) return null;
 
-    const resources: Resource[] = item.inputs.filter(i => i.type == "resource") as Resource[]
-    const artifacts: Artifact[] = item.inputs.filter(i => i.type == "artifact") as Artifact[]
+    const resources: IResource[] = item.inputs.filter(i => i.type == "resource") as IResource[]
+    const artifacts: IArtifact[] = item.inputs.filter(i => i.type == "artifact") as IArtifact[]
 
     const is_next = artifacts
         .map(a => !!run.items[a.producer].finishedAt)
@@ -256,15 +248,26 @@ async function item_request_progress(run: WorkGroupRun, item: ExtendedWorkUnit):
     
     if (!is_next) return null
 
-    const acquiredResources = await requestResources(resources, { run: run._id, job: item.name })
+    const acquiredResources = await requestResources(resources, { run: run._id!, job: item.name })
     if (!acquiredResources) return null
 
     return acquiredResources
 }
 
+async function cancel_workgroup(run_id: ObjectId) {
+    const db = await useDatabase()
+    const run = (await db.collection("workgroup_runs").findOne({ _id: run_id })) as IWorkGroupRun
+
+    run.lastCheckedAt = new Date()
+
+    let promises = Object.keys(run.items).map(async itemName => {
+        const item = run.items[itemName]
+    })
+}
+
 async function advance_workgroup(run_id: ObjectId) {
     const db = await useDatabase()
-    const run = (await db.collection("workgroup_runs").findOne({ _id: run_id })) as WorkGroupRun
+    const run = (await db.collection("workgroup_runs").findOne({ _id: run_id })) as IWorkGroupRun
 
     run.lastCheckedAt = new Date()
 

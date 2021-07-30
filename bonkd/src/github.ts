@@ -17,7 +17,7 @@ export const useGithub = async () => {
 
 async function getNgrokPublicUrl() {
     const response = await fetch("http://localhost:4040/api/tunnels")
-    return (await response.json()).tunnels.find(t => t.name == "github-webhooks").public_url
+    return (await response.json()).tunnels.find((t: any) => t.name == "github-webhooks").public_url
 }
 
 

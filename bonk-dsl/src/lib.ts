@@ -1,5 +1,5 @@
 import fetch from "node-fetch"
-
+import { IResource, IArtifact, IWorkUnit, IWorkGroupRun, UnitStatus, WorkflowStatus } from "@nyrox/bonkd/build/tsc/types"
 
 interface PushTrigger {
     EVENT_TYPE: "push",
@@ -13,22 +13,14 @@ interface PRTrigger {
 type Trigger = PushTrigger | PRTrigger
 
 
-export interface WorkGroup {
-    items: Record<string, WorkUnit>,
-    name: string,
-    commit_ref: string,
-    commit_hash: string,
-}
-
-
-export class Artifact implements InputInterface {
+class Artifact implements IArtifact {
     type: "artifact" = "artifact"
     producer: string
     name: string
 
     constructor(producer: string, name: string) {
         this.producer = producer
-        this.name = name
+        this.name = name 
     }
 
     display(): string {
@@ -36,7 +28,7 @@ export class Artifact implements InputInterface {
     }
 }
 
-export class Resource implements InputInterface {
+class Resource implements IResource {
     type: "resource" = "resource"
     resource_set: string
     filters: Record<string, string>
@@ -51,34 +43,44 @@ export class Resource implements InputInterface {
     }
 }
 
-export type InputType = "artifact" | "resource"
+type Input = Artifact | Resource
 
-interface InputInterface {
-    type: InputType
-    display: () => string
-}
-export type Input = Artifact | Resource
-
-
-
-export interface UnitOptions {
+interface UnitOptions {
     workflow: string,
     inputs?: Input[]
 }
 
-export class WorkUnit {
+class WorkUnit implements IWorkUnit {
     name: string
     workflow_file: string
     inputs: Input[]
+    status: UnitStatus
 
     constructor(name: string, options: UnitOptions) {
         this.name = name
         this.workflow_file = options.workflow
         this.inputs = options.inputs || []
+        this.status = UnitStatus.Queued
     }
 
     public artifact(name: string) {
         return new Artifact(this.name, name)
+    }
+}
+
+class WorkGroup implements IWorkGroupRun {
+    workgroup_name: string
+    items: Record<string, WorkUnit>
+    commit_ref: string
+    commit_hash: string
+    status: WorkflowStatus
+
+    constructor(name: string, items: Record<string, WorkUnit>, commit_ref: string, commit_hash: string) {
+        this.workgroup_name = name
+        this.items = items
+        this.commit_ref = commit_ref
+        this.commit_hash = commit_hash
+        this.status = WorkflowStatus.Running
     }
 }
 
@@ -89,7 +91,7 @@ export function push(ref: string, workgroup: () => Promise<WorkGroup>): [Trigger
 }
 
 export function check_trigger(trigger: Trigger, event: BonkEvent): boolean {
-    if (trigger.EVENT_TYPE != event.event_type) return;
+    if (trigger.EVENT_TYPE != event.event_type) return false;
 
     switch (trigger.EVENT_TYPE) {
         case "push": return trigger.ref == event.event_payload
@@ -108,7 +110,7 @@ export async function stick(workgroups: [Trigger, () => Promise<WorkGroup>][]) {
         const workgroup = await wg_f()
 
         if (is_trial()) {
-            console.info(`Running workgroup "${workgroup.name}" with items:`)
+            console.info(`Running workgroup "${workgroup.workgroup_name}" with items:`)
             Object.keys(workgroup.items).forEach(item_name => {
                 console.log(`  ↳ ${item_name}`)
                 const item = workgroup.items[item_name]
@@ -149,7 +151,11 @@ export function workgroup(name: string, units: WorkUnit[]): WorkGroup {
         })
     })
 
-    return { name, items, commit_ref: process.env["COMMIT_REF"], commit_hash: process.env["COMMIT_HASH"] }
+    return new WorkGroup(
+        name,
+        items,
+        process.env["COMMIT_REF"]!,
+        process.env["COMMIT_HASH"]! )
 }
 
 export function unit(name: string, options: UnitOptions): WorkUnit {
@@ -166,7 +172,7 @@ export interface BonkEvent {
 }
 
 export function current_event(): BonkEvent {
-    let event = process.env["BONK_EVENT"]
+    let event = process.env["BONK_EVENT"]!
     let [event_type, event_payload] = event.split(":")
 
     return {
