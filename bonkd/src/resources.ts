@@ -4,6 +4,8 @@ import { IResource } from "@nyrox/bonk-common/build/tsc/types"
 import { Db, ObjectId } from "mongodb"
 import { useDatabase } from "./utils"
 
+import { Result, Ok, Err } from "ts-results"
+
 enum LockState {
     Free = 0,
     Reserved = 1,
@@ -31,9 +33,10 @@ export async function unlockAll() {
     }
 }
 
-export async function requestResources(requested: IResource[], requester: { run: ObjectId, job: string }): Promise<LockedResource[] | null> {
+export async function requestResources(requested: IResource[], requester: { run: ObjectId, job: string }): Promise<Result<LockedResource[], IResource[]>> {
     const release = await serviceLock.acquire()
     let selected: LockedResource[] = []
+    let missing: IResource[] = []
     const db = await useDatabase()
 
     try {
@@ -47,9 +50,11 @@ export async function requestResources(requested: IResource[], requester: { run:
                 }
             }, { $set: { lock_state: LockState.Reserved }})
 
-            if (!available.value) return null
-            selected.push(available.value as LockedResource)
+            if (!available.value) missing.push(find)
+            else selected.push(available.value as LockedResource)
         }
+
+        if (missing.length > 0) return Err(missing)
 
         await db.collection("resources").updateMany({
             lock_state: LockState.Reserved,
@@ -59,7 +64,7 @@ export async function requestResources(requested: IResource[], requester: { run:
             locked_in_job: requester.job,
         }})
 
-        return selected
+        return Ok(selected)
     } finally {
         // unlock resources we didn't end up using
         await db.collection("resources").updateMany({

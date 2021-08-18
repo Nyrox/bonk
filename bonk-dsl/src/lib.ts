@@ -17,10 +17,12 @@ class Artifact implements IArtifact {
     type: "artifact" = "artifact"
     producer: string
     name: string
+    downloadPath: string
 
-    constructor(producer: string, name: string) {
+    constructor(producer: string, name: string, downloadPath: string = ".") {
         this.producer = producer
         this.name = name 
+        this.downloadPath = downloadPath
     }
 
     display(): string {
@@ -63,8 +65,8 @@ class WorkUnit implements IWorkUnit {
         this.status = UnitStatus.Queued
     }
 
-    public artifact(name: string) {
-        return new Artifact(this.name, name)
+    public artifact(name: string, downloadPath?: string) {
+        return new Artifact(this.name, name, downloadPath)
     }
 }
 
